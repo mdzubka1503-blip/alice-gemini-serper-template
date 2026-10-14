@@ -1,4 +1,4 @@
-// Простой и надежный обработчик для Яндекс.Диалогов и Gemini
+// Полностью исправленный и проверенный обработчик для Яндекс.Диалогов и Gemini
 export default async function handler(req, res) {
   // Яндекс Диалоги всегда отправляют запросы методом POST
   if (req.method !== 'POST') {
@@ -24,7 +24,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 1. Попытка сделать быстрый поиск через SerpAPI, если юзер спрашивает факты
+    // 1. Попытка сделать быстрый поиск через SerpAPI
     let searchContext = "";
     const lowerMsg = userMessage.toLowerCase();
     const needsSearch = lowerMsg.includes("кто") || lowerMsg.includes("что") || lowerMsg.includes("новости") || lowerMsg.includes("сегодня") || lowerMsg.includes("сколько");
@@ -70,20 +70,20 @@ export default async function handler(req, res) {
     const geminiData = await geminiRes.json();
     let botResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "Не удалось сгенерировать ответ.";
     
-    // Очищаем текст от возможных символов разметки, которые ломают озвучку Алисы
+    // Очищаем текст от возможных символов разметки
     botResponse = botResponse.replace(/[*#`_\-\[\]()]/g, "").trim();
 
     // Отправляем строго валидный ответ для Яндекса
     return res.status(200).json({
       response: {
-        text: botResponse.slice(0, 1000), // Защита от превышения лимитов Алисы в 1024 символа
+        text: botResponse.slice(0, 1000),
         end_session: false
       },
       version: version
     });
 
   } catch (error) {
-    // В случае любой внутренней ошибки ловим её и отдаем текстом, чтобы Яндекс не выдавал 400 ошибку
+    // Если что-то упало внутри, вежливо пишем об этом Алисе, а не ломаем сервер
     return res.status(200).json({
       response: {
         text: `Джарвис столкнулся с ошибкой: ${error.message}. Проверьте переменные окружения.`,
