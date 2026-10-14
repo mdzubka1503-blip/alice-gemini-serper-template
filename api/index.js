@@ -1,6 +1,6 @@
-// Полностью исправленный и проверенный обработчик для Яндекс.Диалогов и Gemini
+// Простой и надежный обработчик для Яндекс.Диалогов и Gemini
 export default async function handler(req, res) {
-  // Яндекс Диалоги всегда отправляют запросы методом POST
+  // Навык Алисы работает только через POST-запросы
   if (req.method !== 'POST') {
     return res.status(200).json({
       response: { text: "Привет! Я работаю только через Яндекс Алису.", end_session: true },
@@ -13,10 +13,10 @@ export default async function handler(req, res) {
     const request = body.request || {};
     const version = body.version || "1.0";
     
-    // Получаем фразу пользователя
+    // Фраза, которую произнес пользователь
     const userMessage = (request.command || "").trim();
 
-    // Если запрос пустой (первый запуск/проверка от Яндекса)
+    // Защита от пустых или проверочных запросов Яндекса
     if (!userMessage) {
       return res.status(200).json({
         response: { text: "Привет! Я твой умный ассистент Джарвис на базе Gemini. О чем хочешь поговорить?", end_session: false },
@@ -24,14 +24,15 @@ export default async function handler(req, res) {
       });
     }
 
-    // 1. Попытка сделать быстрый поиск через SerpAPI
+    // 1. Поиск информации в Google через SerpAPI
     let searchContext = "";
     const lowerMsg = userMessage.toLowerCase();
     const needsSearch = lowerMsg.includes("кто") || lowerMsg.includes("что") || lowerMsg.includes("новости") || lowerMsg.includes("сегодня") || lowerMsg.includes("сколько");
 
     if (needsSearch && process.env.SERPAPI_KEY) {
       try {
-        const url = `https://serpapi.com\({encodeURIComponent(userMessage)}&api_key=\){process.env.SERPAPI_KEY}&engine=google&hl=ru&gl=ru`;
+        const queryParam = encodeURIComponent(userMessage);
+        const url = "https://serpapi.com" + queryParam + "&api_key=" + process.env.SERPAPI_KEY + "&engine=google&hl=ru&gl=ru";
         const serpRes = await fetch(url);
         if (serpRes.ok) {
           const serpData = await serpRes.json();
@@ -44,49 +45,49 @@ export default async function handler(req, res) {
       }
     }
 
-    // 2. Формируем системный промт для Gemini
+    // 2. Настройка инструкций для нейросети
     let systemPrompt = "Ты — полезный голосовой ассистент Джарвис для Алисы. Отвечай кратко (1-3 коротких предложения), по-русски, без списков, разметки Markdown и спецсимволов, чтобы текст было удобно слушать голосом.";
     if (searchContext) {
-      systemPrompt += ` Используй этот актуальный факт из интернета для ответа: \${searchContext}`;
+      systemPrompt += " Используй этот актуальный факт из интернета для ответа: " + searchContext;
     }
 
-    // 3. Запрос к API Gemini напрямую
-    const geminiUrl = `https://googleapis.com\${process.env.GEMINI_API_KEY}`;
+    // 3. Отправка прямого запроса в Google Gemini API
+    const geminiUrl = "https://googleapis.com" + process.env.GEMINI_API_KEY;
     
     const geminiRes = await fetch(geminiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [
-          { role: "user", parts: [{ text: `\({systemPrompt}\n\nВопрос пользователя: \){userMessage}` }] }
+          { role: "user", parts: [{ text: systemPrompt + "\n\nВопрос пользователя: " + userMessage }] }
         ]
       })
     });
 
     if (!geminiRes.ok) {
-      throw new Error(`Gemini вернул статус \${geminiRes.status}`);
+      throw new Error("Gemini API вернул ошибку " + geminiRes.status);
     }
 
     const geminiData = await geminiRes.json();
     let botResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "Не удалось сгенерировать ответ.";
     
-    // Очищаем текст от возможных символов разметки
+    // Очищаем текст от символов разметки, которые ломают чтение Алисы
     botResponse = botResponse.replace(/[*#`_\-\[\]()]/g, "").trim();
 
-    // Отправляем строго валидный ответ для Яндекса
+    // Возвращаем строго валидный JSON, который требует Яндекс
     return res.status(200).json({
       response: {
-        text: botResponse.slice(0, 1000),
+        text: botResponse.slice(0, 1000), // Ограничение по длине сообщения в Алисе
         end_session: false
       },
       version: version
     });
 
   } catch (error) {
-    // Если что-то упало внутри, вежливо пишем об этом Алисе, а не ломаем сервер
+    // Безопасный перехват ошибок: если что-то упало, мы пишем текст ошибки в чат, а не вешаем сервер
     return res.status(200).json({
       response: {
-        text: `Джарвис столкнулся с ошибкой: ${error.message}. Проверьте переменные окружения.`,
+        text: "Джарвис столкнулся с внутренней ошибкой: " + error.message,
         end_session: false
       },
       version: "1.0"
